@@ -1,0 +1,550 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>语音提词器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#fff;color:#222}
+#editMode{display:flex;flex-direction:column;height:100vh}
+#textInput{flex:1;width:100%;border:none;padding:24px;font-size:18px;line-height:1.8;resize:none;outline:none;font-family:inherit;background:transparent}
+#editFooter{display:flex;align-items:center;justify-content:center;padding:12px}
+#sentenceCount{display:none}
+#startBtn{padding:14px 48px;background:#222;color:#fff;border:none;border-radius:10px;font-size:18px;cursor:pointer;width:80%;max-width:320px}
+#startBtn:hover{background:#444}
+#startBtn:disabled{opacity:0.3;cursor:not-allowed}
+#prompterMode{display:none;flex-direction:column;height:100vh;background:#fff}
+#topBar{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;border-bottom:1px solid #eee;flex-shrink:0;gap:12px;position:relative}
+#topLeft{display:flex;align-items:center;gap:8px;flex-shrink:0}
+#topRight{display:flex;align-items:center;gap:6px;font-size:12px;color:#888}
+#micStatus{font-size:13px;user-select:none}
+#micStatus.listening{color:#22c55e}
+#micStatus.idle{color:#999}
+#micStatus.error{color:#ef4444}
+#progress{font-size:12px;color:#999;white-space:nowrap}
+.topSep{color:#ddd;font-size:10px;margin:0 2px}
+.topLabel{color:#999;margin-right:2px}
+.topIconBtn{background:none;border:1px solid #e0e0e0;border-radius:4px;padding:2px 6px;font-size:13px;cursor:pointer;color:#666;line-height:1;font-family:inherit}
+.topIconBtn:hover{background:#f0f0f0;border-color:#ccc}
+.recBtn{color:#e33;border-color:#fcc}
+.recBtn:hover{background:#fee}
+.recBtn.recording{background:#fee;border-color:#e33;color:#e33;animation:recPulse 1s infinite}
+@keyframes recPulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.exitBtn{color:#999;border-color:#e0e0e0}
+.exitBtn:hover{background:#fee;border-color:#e33;color:#e33}
+#sensitivityGroup{display:flex;align-items:center;gap:4px;font-size:12px;color:#999}
+.sensBtn{padding:2px 10px;border:1px solid #ddd;background:#fff;border-radius:4px;font-size:12px;cursor:pointer;color:#666;font-family:inherit}
+.sensBtn.active{background:#222;color:#fff;border-color:#222}
+#lyricsContainer{flex:1;overflow-y:auto;padding:50vh 0;scroll-behavior:smooth}
+#lyricsContainer::-webkit-scrollbar{width:6px}
+#lyricsContainer::-webkit-scrollbar-track{background:transparent}
+#lyricsContainer::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+
+#settingsBtn{background:none;border:1px solid #ddd;border-radius:4px;padding:2px 8px;font-size:13px;cursor:pointer;color:#666;font-family:inherit}
+#settingsBtn:hover{background:#f5f5f5}
+#settingsPanel{display:none;position:absolute;top:100%;right:16px;background:#fff;border:1px solid #e0e0e0;border-radius:8px;padding:12px 16px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:999;min-width:230px;margin-top:4px}
+#settingsPanel.open{display:block}
+.setting-row{display:flex;align-items:center;margin-bottom:6px;gap:8px}
+.setting-row:last-child{margin-bottom:0}
+.setting-row label{font-size:12px;color:#666;min-width:60px}
+.setting-row input[type=range]{flex:1;max-width:160px;height:4px;cursor:pointer}
+.setting-group{margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #eee}
+.setting-label{font-size:12px;color:#666;margin-bottom:4px}
+.setting-sens{display:flex;gap:4px}
+.setting-row .val{font-size:12px;color:#222;min-width:45px;text-align:right;font-variant-numeric:tabular-nums}
+#lyricsContainer::-webkit-scrollbar-thumb{background:#ddd;border-radius:2px}
+.lyric-line{padding:8px 20px;transition:all 0.4s cubic-bezier(0.25,0.1,0.25,1);text-align:left;user-select:none;cursor:pointer;line-height:1.5}
+.lyric-line:hover{background:#fafafa}
+.lyric-line.d1{color:#555;font-size:26px;font-weight:500}
+.lyric-line.d2{color:#888;font-size:19px}
+.lyric-line.d3{color:#aaa;font-size:15px}
+.lyric-line.d4{color:#ccc;font-size:13px}
+.lyric-line.current{color:#111;font-size:44px;font-weight:700;padding:16px 20px}
+#bottomBar{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-top:1px solid #eee;flex-shrink:0}
+#progress{font-size:13px;color:#999}
+#backToEdit{padding:6px 16px;border:1px solid #ddd;background:#fff;border-radius:6px;font-size:13px;cursor:pointer;color:#666;font-family:inherit}
+#backToEdit:hover{background:#f5f5f5}
+#waveform{display:inline-block;width:60px;height:20px;vertical-align:middle;margin-left:8px}
+#waveform canvas{width:100%;height:100%;border-radius:3px;background:#f0f0f0}
+</style>
+</head>
+<body>
+<!-- EDIT MODE -->
+<div id="editMode">
+  <textarea id="textInput" placeholder="在此粘贴文案..."></textarea>
+  <div id="editFooter">
+    <button id="startBtn" disabled>进入提词</button>
+  </div>
+</div>
+
+<!-- TELEPROMPTER MODE -->
+<div id="prompterMode">
+  <div id="topBar">
+    <div id="topLeft">
+      <span id="micStatus" class="idle">○ 等待中</span>
+      <span id="waveform"><canvas id="waveCanvas" width="72" height="16"></canvas></span>
+    </div>
+    <div id="topRight">
+      <span id="progress">第 0 / 0 句</span>
+      <span class="topSep">|</span>
+      <button id="recordBtn" class="topIconBtn recBtn">◈ 录音</button>
+      <button id="settingsBtn" class="topIconBtn">⚙</button>
+      <button id="exitPrompterBtn" class="topIconBtn exitBtn">✕ 退出</button>
+    </div>
+  
+    <div id="settingsPanel">
+    <div class="setting-group">
+    <div class="setting-label">灵敏度</div>
+    <div class="setting-sens">
+      <button class="sensBtn" data-level="low">低</button>
+      <button class="sensBtn active" data-level="medium">中</button>
+      <button class="sensBtn" data-level="high">高</button>
+    </div>
+  </div>
+  <div class="setting-row">
+    <label>静音判定</label>
+    <input type="range" id="silenceSlider" min="300" max="3000" value="1000" step="100">
+    <span class="val" id="silenceVal">1000ms</span>
+  </div>
+  <div class="setting-row">
+    <label>短语阈值</label>
+    <input type="range" id="shortSlider" min="200" max="2000" value="800" step="100">
+    <span class="val" id="shortVal">800ms</span>
+  </div>
+  <div class="setting-row">
+    <label>回退窗口</label>
+    <input type="range" id="windowSlider" min="300" max="3000" value="1000" step="100">
+    <span class="val" id="windowVal">1000ms</span>
+  </div>
+</div>
+</div>
+<div id="lyricsContainer"></div>
+  <div id="bottomBar" style="display:none">
+  </div>
+</div>
+
+<script>
+// === Sentence Splitting ===
+function splitSentences(text) {
+  const raw = text.match(/[^\u3002\uff01\uff1f\n]+[\u3002\uff01\uff1f]?/g) || [];
+  const result = [];
+  for (let s of raw) {
+    s = s.trim();
+    if (!s) continue;
+    if (s.length > 25) {
+      const parts = s.split(/[\uff0c\u3001\uff1b\uff1a]/);
+      let cur = "";
+      for (let p of parts) {
+        p = p.trim();
+        if (!p) continue;
+        if (cur.length + p.length > 25) {
+          if (cur) result.push(cur);
+          cur = p;
+        } else {
+          cur = cur ? cur + "," + p : p;
+        }
+      }
+      if (cur) result.push(cur);
+    } else {
+      result.push(s);
+    }
+  }
+  return result.filter(s => s.length > 0);
+}
+
+// === DOM refs ===
+const editMode = document.getElementById("editMode");
+const prompterMode = document.getElementById("prompterMode");
+const textInput = document.getElementById("textInput");
+const startBtn = document.getElementById("startBtn");
+const lyricsContainer = document.getElementById("lyricsContainer");
+const progress = document.getElementById("progress");
+const micStatus = document.getElementById("micStatus");
+const waveCanvas = document.getElementById("waveCanvas");
+const waveCtx = waveCanvas.getContext("2d");
+
+let sentences = [];
+let currentIndex = 0;
+
+// === VAD State ===
+let audioContext = null;
+let analyser = null;
+let mediaStream = null;
+let isListening = false;
+let isSpeaking = false;
+let speechStartTime = 0;
+let silenceStartTime = 0;
+let sensitivityThreshold = 0.08;
+let animFrameId = null;
+let isProcessing = false;
+let isMicPaused = false;
+let lastSpeechEndTime = 0;
+const speechBursts = [];
+let BACK_WINDOW_MS = 1000;
+const ISOLATED_SILENCE_MS = 800;
+
+const waveformBuffer = new Float32Array(60);
+for (let i = 0; i < waveformBuffer.length; i++) waveformBuffer[i] = 0;
+
+let SILENCE_CONFIRM_MS = 1000;
+let SHORT_SPEECH_MS = 800;
+const MIN_SPEECH_MS = 150;
+
+const SENSITIVITY = { low: 0.15, medium: 0.10, high: 0.06 };
+// === Microphone ===
+async function initMic() {
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+    return true;
+  } catch (e) {
+    console.error(e);
+    micStatus.textContent = "麦克风不可用";
+    micStatus.className = "error";
+    return false;
+  }
+}
+
+function getRMS() {
+  const data = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(data);
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    const v = (data[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.sqrt(sum / data.length);
+}
+
+function drawWaveform(rms) {
+  for (let i = 0; i < waveformBuffer.length - 1; i++) {
+    waveformBuffer[i] = waveformBuffer[i + 1];
+  }
+  waveformBuffer[waveformBuffer.length - 1] = rms;
+  waveCtx.clearRect(0, 0, 120, 20);
+  waveCtx.fillStyle = "#f0f0f0";
+  waveCtx.fillRect(0, 0, 120, 20);
+  const mid = 10;
+  waveCtx.strokeStyle = rms > sensitivityThreshold ? "#22c55e" : "#ccc";
+  waveCtx.lineWidth = 1.5;
+  waveCtx.beginPath();
+  for (let i = 0; i < waveformBuffer.length; i++) {
+    const x = (i / waveformBuffer.length) * 120;
+    const y = mid - (waveformBuffer[i] * 50);
+    if (i === 0) waveCtx.moveTo(x, y);
+    else waveCtx.lineTo(x, y);
+  }
+  waveCtx.stroke();
+}
+
+// === VAD Loop ===
+function startVAD() {
+  if (animFrameId) return;
+  isProcessing = false;
+  function analyze() {
+    if (!analyser) { animFrameId = null; return; }
+    if (isMicPaused) {
+      animFrameId = requestAnimationFrame(analyze);
+      return;
+    }
+    const rms = getRMS();
+    drawWaveform(rms);
+    const above = rms > sensitivityThreshold;
+    if (above) {
+      if (!isSpeaking && !isProcessing) {
+        isSpeaking = true;
+        speechStartTime = Date.now();
+        silenceStartTime = 0;
+      } else if (isSpeaking) {
+        silenceStartTime = 0;
+      }
+    } else {
+      if (isSpeaking && !isProcessing) {
+        if (silenceStartTime === 0) {
+          silenceStartTime = Date.now();
+        } else {
+          const sd = Date.now() - silenceStartTime;
+          if (sd >= SILENCE_CONFIRM_MS) {
+            const speechDur = silenceStartTime - speechStartTime;
+            processSegment(speechDur);
+          }
+        }
+      }
+    }
+    animFrameId = requestAnimationFrame(analyze);
+  }
+  animFrameId = requestAnimationFrame(analyze);
+}
+
+function stopVAD() {
+  if (animFrameId) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
+  }
+}
+
+function processSegment(dur) {
+  isProcessing = true;
+  isSpeaking = false;
+  silenceStartTime = 0;
+  const now = Date.now();
+  if (dur < MIN_SPEECH_MS) {
+    isProcessing = false;
+    return;
+  }
+  // Record burst and count in 2s window
+  speechBursts.push(now);
+  while (speechBursts.length > 0 && speechBursts[0] < now - BACK_WINDOW_MS) {
+    speechBursts.shift();
+  }
+  const burstCount = speechBursts.length;
+  if (dur >= SHORT_SPEECH_MS) {
+    // Long speech = normal reading
+    doAdvance();
+  } else {
+    // Short speech: back only if isolated (1 burst in 2s)
+    if (burstCount <= 1) {
+      doBack();
+    }
+  }
+  lastSpeechEndTime = now;
+  setTimeout(() => {
+    isProcessing = false;
+  }, 200);
+}
+
+function doAdvance() {
+  if (currentIndex < sentences.length - 1) {
+    currentIndex++;
+    renderLyrics();
+  }
+}
+
+function doBack() {
+  if (currentIndex > 0) {
+    currentIndex--;
+    renderLyrics();
+  }
+}
+// === Render ===
+function renderLyrics() {
+  lyricsContainer.innerHTML = "";
+  for (let i = 0; i < sentences.length; i++) {
+    const div = document.createElement("div");
+    div.className = "lyric-line";
+    div.textContent = sentences[i];
+    div.dataset.index = i;
+    const dist = Math.abs(i - currentIndex);
+    if (i === currentIndex) {
+      div.classList.add("current");
+    } else if (dist === 1) {
+      div.classList.add("d1");
+    } else if (dist === 2) {
+      div.classList.add("d2");
+    } else if (dist === 3) {
+      div.classList.add("d3");
+    } else {
+      div.classList.add("d4");
+    }
+    lyricsContainer.appendChild(div);
+  }
+  progress.textContent = "\u7b2c " + (currentIndex + 1) + " / " + sentences.length + " \u53e5";
+  scrollToCurrent();
+}
+
+function scrollToCurrent() {
+  const cur = lyricsContainer.querySelector(".current");
+  if (!cur) return;
+  const containerRect = lyricsContainer.getBoundingClientRect();
+  const targetY = containerRect.height * 0.50;
+  const scrollTarget = Math.max(0, cur.offsetTop - targetY);
+  lyricsContainer.scrollTo({ top: scrollTarget, behavior: "smooth" });
+}
+
+// === Mode switch ===
+function enterPrompter() {
+  sentences = splitSentences(textInput.value);
+  if (sentences.length === 0) return;
+  currentIndex = 0;
+  editMode.style.display = "none";
+  prompterMode.style.display = "flex";
+  renderLyrics();
+  startListening();
+}
+
+function backToEditMode() {
+  stopVAD();
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(t => t.stop());
+    mediaStream = null;
+  }
+  if (audioContext) {
+    audioContext.close();
+    audioContext = null;
+  }
+  analyser = null;
+  isListening = false;
+  isSpeaking = false;
+  isProcessing = false;
+  isMicPaused = false;
+  lastSpeechEndTime = 0;
+  silenceStartTime = 0;
+  editMode.style.display = "flex";
+  prompterMode.style.display = "none";
+}
+
+async function startListening() {
+  micStatus.textContent = "启动麦克风...";
+  micStatus.className = "idle";
+  const ok = await initMic();
+  if (!ok) return;
+  isListening = true;
+  micUpdate();
+  startVAD();
+}
+
+function micUpdate() {
+  if (isMicPaused) {
+    micStatus.textContent = "已暂停";
+    micStatus.className = "idle";
+  } else {
+    micStatus.textContent = "聆听中";
+    micStatus.className = "listening";
+  }
+}
+
+function togglePause() {
+  isMicPaused = !isMicPaused;
+  micUpdate();
+}
+// === Events ===
+lyricsContainer.addEventListener("click", (e) => {
+  const line = e.target.closest(".lyric-line");
+  if (!line) return;
+  const idx = parseInt(line.dataset.index);
+  if (isNaN(idx)) return;
+  currentIndex = idx;
+  renderLyrics();
+});
+
+textInput.addEventListener("input", () => {
+  const lines = splitSentences(textInput.value);
+    startBtn.disabled = lines.length === 0;
+  });
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+startBtn.addEventListener("click", enterPrompter);
+// === Recording ===
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+const recordBtn = document.getElementById("recordBtn");
+
+function toggleRecording() {
+  if (!mediaStream) return;
+  if (isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    recordBtn.classList.remove("recording");
+    recordBtn.innerHTML = "\u25cf \u5f55\u97f3";
+  } else {
+    audioChunks = [];
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream);
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunks, { type: "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const ts = new Date().toISOString().slice(0,19).replace(/[:-]/g,"");
+        a.download = "\u5f55\u97f3_" + ts + ".webm";
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+      mediaRecorder.start();
+      isRecording = true;
+      recordBtn.classList.add("recording");
+      recordBtn.innerHTML = "\u25cf \u6b63\u5728\u5f55\u5236...";
+    } catch (e) {
+      console.error(e);
+      alert("\u5f55\u5236\u5931\u8d25\uff1a" + e.message);
+    }
+  }
+}
+
+recordBtn.addEventListener("click", toggleRecording);
+
+// Exit button in top bar
+const exitPrompterBtn = document.getElementById("exitPrompterBtn");
+if (exitPrompterBtn) {
+  exitPrompterBtn.addEventListener("click", backToEditMode);
+}
+
+document.querySelectorAll(".sensBtn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".sensBtn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    sensitivityThreshold = SENSITIVITY[btn.dataset.level];
+  });
+});
+
+document.addEventListener("keydown", (e) => {
+  if (prompterMode.style.display === "flex") {
+    if (e.key === "ArrowUp" || e.key === "ArrowLeft") doBack();
+    else if (e.key === "ArrowDown" || e.key === "ArrowRight") doAdvance();
+    else if (e.key === "Escape") backToEditMode();
+    else if (e.key === " " && e.target === document.body) {
+      e.preventDefault();
+      togglePause();
+    }
+  }
+});
+
+micStatus.addEventListener("click", () => {
+  if (isListening) togglePause();
+});
+
+// === Settings controls ===
+const settingsBtn = document.getElementById("settingsBtn");
+const settingsPanel = document.getElementById("settingsPanel");
+const silenceSlider = document.getElementById("silenceSlider");
+const shortSlider = document.getElementById("shortSlider");
+const windowSlider = document.getElementById("windowSlider");
+const silenceVal = document.getElementById("silenceVal");
+const shortVal = document.getElementById("shortVal");
+const windowVal = document.getElementById("windowVal");
+
+settingsBtn.addEventListener("click", () => {
+  settingsPanel.classList.toggle("open");
+  settingsBtn.textContent = settingsPanel.classList.contains("open") ? "\u2716" : "\u2699";
+});
+
+silenceSlider.addEventListener("input", () => {
+  SILENCE_CONFIRM_MS = parseInt(silenceSlider.value);
+  silenceVal.textContent = SILENCE_CONFIRM_MS + "ms";
+});
+shortSlider.addEventListener("input", () => {
+  SHORT_SPEECH_MS = parseInt(shortSlider.value);
+  shortVal.textContent = SHORT_SPEECH_MS + "ms";
+});
+windowSlider.addEventListener("input", () => {
+  BACK_WINDOW_MS = parseInt(windowSlider.value);
+  windowVal.textContent = BACK_WINDOW_MS + "ms";
+});
+
+startBtn.disabled = true;
+</script>
+</body>
+</html>
+
